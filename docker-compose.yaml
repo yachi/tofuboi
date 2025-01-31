@@ -1,0 +1,7 @@
+services:
+  tofuboi:
+    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
