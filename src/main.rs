@@ -37,30 +37,39 @@ async fn main() {
                 Ok(transcript) => {
                     send_transcript(&bot, &msg, transcript).await?;
                 }
-                Err(ytranscript::YoutubeTranscriptError::TranscriptNotAvailableLanguage(_, available_langs, video)) => {
-                    // If the requested language is not available, use the first available language
-                    let fallback_lang = available_langs.get(0).cloned().unwrap_or("en".to_string());
-                    let new_config = TranscriptConfig {
-                        lang: Some(fallback_lang.clone()),
+                Err(ytranscript::YoutubeTranscriptError::TranscriptNotAvailableLanguage(_, available_langs, _video)) => {
+                    // Try to use zh-HK if available. If not, if "en" is available then use "en".
+                    // Otherwise, fall back to the first language in available_langs or "en" if empty.
+                    let fallback_lang = if available_langs.contains(&"en".to_string()) {
+                        "en".to_string()
+                    } else if available_langs.contains(&"en".to_string()) {
+                        "zh-HK".to_string()
+                    } else {
+                        available_langs.get(0).cloned().unwrap_or("en".to_string())
                     };
+
+                    let available_langs_str = available_langs.join(", ");
                     let info = format!(
-                        "Requested language '{}' not available. Retrying with fallback language '{}'.",
-                        requested_lang, fallback_lang
+                        "Requested language '{}' not available. Retrying with fallback language '{}'. Available languages: {}",
+                        requested_lang, fallback_lang, available_langs_str
                     );
                     bot.send_message(msg.chat.id, info).await?;
-                    match YoutubeTranscript::fetch_transcript(video.as_str(), Some(new_config)).await {
+                    let new_config = TranscriptConfig {
+                        lang: Some(fallback_lang),
+                    };
+                    match YoutubeTranscript::fetch_transcript(video_id.trim(), Some(new_config)).await {
                         Ok(transcript) => {
                             send_transcript(&bot, &msg, transcript).await?;
                         }
                         Err(e) => {
                             bot.send_message(msg.chat.id, format!("Error fetching transcript: {}", e))
-                                .await?;
+                            .await?;
                         }
                     }
                 }
                 Err(e) => {
                     bot.send_message(msg.chat.id, format!("Error fetching transcript: {}", e))
-                        .await?;
+                    .await?;
                 }
             }
         } else {
