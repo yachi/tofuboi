@@ -1,5 +1,6 @@
-use teloxide::prelude::*; // Teloxide provides the fundamental traits and types for bot creation
-use ytranscript::{TranscriptConfig, YoutubeTranscript}; // Import TranscriptConfig along with YoutubeTranscript
+use html_escape::decode_html_entities;
+use teloxide::prelude::*;
+use ytranscript::{TranscriptConfig, YoutubeTranscript}; // Import the decode function
 
 #[tokio::main]
 async fn main() {
@@ -8,7 +9,6 @@ async fn main() {
     log::info!("Launching Telegram bot...");
 
     // Read the bot token from the TELOXIDE_TOKEN environment variable
-    // For example, set it like: export TELOXIDE_TOKEN="123456789:ABC-123..."
     let bot = Bot::from_env();
 
     // Use 'repl' to respond to each incoming message
@@ -28,8 +28,11 @@ async fn main() {
                         result.push_str(&format!("{} ", entry.text));
                     }
 
+                    // Use html-escape to decode any HTML entities in the transcript text
+                    let unescaped = decode_html_entities(&result).replace("&#39;", "'");
+
                     // If there's no transcript text or it's empty, notify the user
-                    if result.trim().is_empty() {
+                    if unescaped.trim().is_empty() {
                         bot.send_message(
                             msg.chat.id,
                             "Transcript could not be retrieved or is empty.",
@@ -37,7 +40,7 @@ async fn main() {
                         .await?;
                     } else {
                         // Split the transcript into 4096-byte chunks to avoid exceeding Telegram's limit
-                        for chunk in result.as_bytes().chunks(4096) {
+                        for chunk in unescaped.as_bytes().chunks(4096) {
                             let text_chunk = String::from_utf8_lossy(chunk);
                             bot.send_message(msg.chat.id, text_chunk).await?;
                         }
