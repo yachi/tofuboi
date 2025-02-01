@@ -1,5 +1,5 @@
-use teloxide::prelude::*; // Teloxide provides the fundamental traits and types for bot creation [6]
-use ytranscript::YoutubeTranscript; // ytranscript offers an easy way to fetch YouTube transcripts [2]
+use teloxide::prelude::*; // Teloxide provides the fundamental traits and types for bot creation
+use ytranscript::{TranscriptConfig, YoutubeTranscript}; // Import TranscriptConfig along with YoutubeTranscript
 
 #[tokio::main]
 async fn main() {
@@ -15,8 +15,13 @@ async fn main() {
     teloxide::repl(bot, |bot: Bot, msg: Message| async move {
         // Attempt to parse the received text as a YouTube video ID
         if let Some(video_id) = msg.text() {
-            // Fetch the transcript with no special config
-            match YoutubeTranscript::fetch_transcript(video_id.trim(), None).await {
+            // Create a TranscriptConfig with the desired language setting
+            let config = TranscriptConfig {
+                lang: Some("en".to_string()),
+            };
+
+            // Fetch the transcript using our configuration
+            match YoutubeTranscript::fetch_transcript(video_id.trim(), Some(config)).await {
                 Ok(transcript) => {
                     let mut result = String::new();
                     for entry in transcript {
