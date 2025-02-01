@@ -1,32 +1,47 @@
-# Build stage
+# Build stage: base with sccache and cargo-chef installed
 FROM jonoh/sccache-rust AS base
+# Install cargo-chef for dependency caching, and set environment variables
 RUN cargo install --locked cargo-chef
-ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
- 
+ENV RUSTC_WRAPPER=sccache \
+    SCCACHE_DIR=/sccache
+
+# Planner stage: prepare the recipe used for caching dependencies
 FROM base AS planner
 WORKDIR /app
-COPY --link src src
+# Use BuildKit's --link to optimize copy performance (ensure BuildKit is enabled)
 COPY --link Cargo.* .
+COPY --link src/ src/
 RUN cargo chef prepare --recipe-path recipe.json
 
+# Builder stage: cook dependencies and build the binary using cached layers
 FROM base AS builder
 WORKDIR /app
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    --mount=type=cache,target=${SCCACHE_DIR},sharing=locked \
     cargo chef cook --release --recipe-path recipe.json
-COPY --link src src
+
 COPY --link Cargo.* .
+COPY --link src/ src/
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    --mount=type=cache,target=${SCCACHE_DIR},sharing=locked \
     cargo build --release
 
-# Runtime stage
-FROM rust:slim
+# Runtime stage: use a minimal image with non-root user
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from builder
-COPY --from=builder /app/target/release/tofuboi /app
+WORKDIR /app
+# Create a non-root user for running the app
+RUN useradd -m appuser
 
-CMD ["/app"]
+# Copy the built binary from the builder stage; ensure proper permissions in one layer
+COPY --from=builder /app/target/release/tofuboi ./tofuboi
+RUN chown appuser:appuser ./tofuboi
+
+USER appuser
+CMD ["/app/tofuboi"]
