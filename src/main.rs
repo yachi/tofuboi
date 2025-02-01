@@ -38,14 +38,17 @@ async fn main() {
                     send_transcript(&bot, &msg, transcript).await?;
                 }
                 Err(ytranscript::YoutubeTranscriptError::TranscriptNotAvailableLanguage(_, available_langs, _video)) => {
-                    // Try to use zh-HK if available. If not, if "en" is available then use "en".
-                    // Otherwise, fall back to the first language in available_langs or "en" if empty.
+                    // Try en first, then zh-HK, zh-TW, then anything that starts with zh.
                     let fallback_lang = if available_langs.contains(&"en".to_string()) {
                         "en".to_string()
-                    } else if available_langs.contains(&"en".to_string()) {
+                    } else if available_langs.contains(&"zh-HK".to_string()) {
                         "zh-HK".to_string()
+                    } else if available_langs.contains(&"zh-TW".to_string()) {
+                        "zh-TW".to_string()
+                    } else if let Some(lang) = available_langs.iter().find(|l| l.starts_with("zh")) {
+                        lang.clone()
                     } else {
-                        available_langs.get(0).cloned().unwrap_or("en".to_string())
+                        available_langs.get(0).cloned().unwrap_or_else(|| "en".to_string())
                     };
 
                     let available_langs_str = available_langs.join(", ");
