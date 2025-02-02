@@ -107,9 +107,12 @@ async fn send_transcript(
         )
         .await?;
     } else {
-        // Split transcript into 4096-byte chunks to avoid exceeding Telegram's character limit
-        for chunk in unescaped.as_bytes().chunks(4096) {
-            let text_chunk = String::from_utf8_lossy(chunk);
+        // Instead of splitting by raw bytes, convert the transcript into Unicode characters.
+        // This avoids splitting multi-byte characters in half.
+        let chars: Vec<char> = unescaped.chars().collect();
+        // Split the characters into chunks of 4096 characters each
+        for chunk in chars.chunks(4096) {
+            let text_chunk: String = chunk.iter().collect();
             bot.send_message(msg.chat.id, text_chunk).await?;
         }
     }
