@@ -87,34 +87,50 @@ fn select_fallback_language(available_langs: &[String], preferred: &[&str]) -> S
 }
 
 /// Helper function to send transcript text in chunks.
+/// Streams the transcript entries directly without accumulating the entire text first.
 async fn send_transcript(
     bot: &Bot,
     msg: &Message,
     transcript: Vec<ytranscript::TranscriptResponse>,
 ) -> Result<(), teloxide::RequestError> {
-    let mut result = String::new();
-    for entry in transcript {
-        result.push_str(&format!("{} ", entry.text));
-    }
-
-    // Decode any HTML entities in the transcript text
-    let unescaped = decode_html_entities(&result).replace("&#39;", "'");
-
-    if unescaped.trim().is_empty() {
+    if transcript.is_empty() {
         bot.send_message(
             msg.chat.id,
             "Transcript could not be retrieved or is empty.",
         )
         .await?;
-    } else {
-        // Instead of splitting by raw bytes, convert the transcript into Unicode characters.
-        // This avoids splitting multi-byte characters in half.
-        let chars: Vec<char> = unescaped.chars().collect();
-        // Split the characters into chunks of 4096 characters each
-        for chunk in chars.chunks(4096) {
-            let text_chunk: String = chunk.iter().collect();
-            bot.send_message(msg.chat.id, text_chunk).await?;
+        return Ok(());
+    }
+
+    let mut current_chunk = String::with_capacity(4096);
+
+    for entry in transcript {
+        let text = decode_html_entities(&entry.text).replace("&#39;", "'");
+
+        // If adding this entry would exceed chunk size, send current chunk first
+        if current_chunk.len() + text.len() + 1 > 4096 {
+            if !current_chunk.is_empty() {
+                bot.send_message(msg.chat.id, &current_chunk).await?;
+                current_chunk.clear();
+            }
+        }
+
+        // Handle case where single entry is longer than 4096
+        if text.len() > 4096 {
+            for chunk in text.chars().collect::<Vec<char>>().chunks(4096) {
+                let chunk_str: String = chunk.iter().collect();
+                bot.send_message(msg.chat.id, chunk_str).await?;
+            }
+        } else {
+            current_chunk.push_str(&text);
+            current_chunk.push(' ');
         }
     }
+
+    // Send any remaining text
+    if !current_chunk.is_empty() {
+        bot.send_message(msg.chat.id, &current_chunk).await?;
+    }
+
     Ok(())
 }
