@@ -108,11 +108,9 @@ async fn send_transcript(
         let text = decode_html_entities(&entry.text).replace("&#39;", "'");
 
         // If adding this entry would exceed chunk size, send current chunk first
-        if current_chunk.len() + text.len() + 1 > 4096 {
-            if !current_chunk.is_empty() {
-                bot.send_message(msg.chat.id, &current_chunk).await?;
-                current_chunk.clear();
-            }
+        if current_chunk.len() + text.len() + 1 > 4096 && !current_chunk.is_empty() {
+            bot.send_message(msg.chat.id, &current_chunk).await?;
+            current_chunk.clear();
         }
 
         // Handle case where single entry is longer than 4096
