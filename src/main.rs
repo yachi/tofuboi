@@ -1,9 +1,11 @@
+mod transcript;
+
 use html_escape::decode_html_entities;
 use teloxide::{
     dispatching::{UpdateFilterExt, UpdateHandler},
     prelude::*,
 };
-use ytranscript::{TranscriptConfig, YoutubeTranscript};
+use transcript::TranscriptService;
 
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
@@ -26,82 +28,39 @@ fn handler_tree() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'st
 }
 
 async fn handle_message(bot: Bot, msg: Message) -> HandlerResult {
-    // Expect the message to contain the YouTube video ID and an optional language code.
-    // Example: "dQw4w9WgXcQ en" or just "dQw4w9WgXcQ"
-    if let Some(text) = msg.text() {
-        let parts: Vec<&str> = text.split_whitespace().collect();
-        if parts.is_empty() {
-            bot.send_message(msg.chat.id, "Please provide a video ID.")
+    let text = match msg.text() {
+        Some(text) => text,
+        None => {
+            bot.send_message(msg.chat.id, "Please provide a valid YouTube video ID.")
                 .await?;
             return Ok(());
         }
-        let video_id = parts[0].trim();
-        let requested_lang = if parts.len() > 1 { parts[1] } else { "en" };
+    };
 
-        let config = TranscriptConfig {
-            lang: Some(requested_lang.to_string()),
-        };
-
-        match YoutubeTranscript::fetch_transcript(video_id, Some(config)).await {
-            Ok(transcript) => {
-                send_transcript(&bot, &msg, transcript).await?;
-            }
-            Err(ytranscript::YoutubeTranscriptError::TranscriptNotAvailableLanguage(
-                _,
-                available_langs,
-                _video,
-            )) => {
-                // Refactored fallback language selection:
-                let fallback_lang =
-                    select_fallback_language(&available_langs, &["en", "zh-HK", "zh-TW"]);
-                let available_langs_str = available_langs.join(", ");
-                let info = format!(
-                        "Requested language '{}' not available. Retrying with fallback language '{}'. Available languages: {}",
-                        requested_lang, fallback_lang, available_langs_str,
-                    );
-                bot.send_message(msg.chat.id, info).await?;
-                let new_config = TranscriptConfig {
-                    lang: Some(fallback_lang),
-                };
-                match YoutubeTranscript::fetch_transcript(video_id, Some(new_config)).await {
-                    Ok(transcript) => {
-                        send_transcript(&bot, &msg, transcript).await?;
-                    }
-                    Err(e) => {
-                        bot.send_message(msg.chat.id, format!("Error fetching transcript: {}", e))
-                            .await?;
-                    }
-                }
-            }
-            Err(e) => {
-                bot.send_message(msg.chat.id, format!("Error fetching transcript: {}", e))
-                    .await?;
-            }
-        }
-    } else {
-        bot.send_message(msg.chat.id, "Please provide a valid YouTube video ID.")
+    let parts: Vec<&str> = text.split_whitespace().collect();
+    if parts.is_empty() {
+        bot.send_message(msg.chat.id, "Please provide a video ID.")
             .await?;
+        return Ok(());
+    }
+
+    let video_id = parts[0].trim();
+    let requested_lang = parts.get(1).copied().unwrap_or("en");
+
+    match TranscriptService::fetch(video_id, requested_lang).await {
+        Ok((transcript, info)) => {
+            if let Some(info) = info {
+                bot.send_message(msg.chat.id, info).await?;
+            }
+            send_transcript(&bot, &msg, transcript).await?;
+        }
+        Err(e) => {
+            bot.send_message(msg.chat.id, format!("Error fetching transcript: {}", e))
+                .await?;
+        }
     }
 
     Ok(())
-}
-
-/// Selects a fallback language from the list of available languages.
-/// It first checks a preferred order (passed in via `preferred`). If none of the preferred codes
-/// are available, it then picks the first language starting with "zh", or falls back to the first available language.
-fn select_fallback_language(available_langs: &[String], preferred: &[&str]) -> String {
-    for &lang in preferred {
-        if available_langs.contains(&lang.to_string()) {
-            return lang.to_string();
-        }
-    }
-    if let Some(lang) = available_langs.iter().find(|l| l.starts_with("zh")) {
-        return lang.clone();
-    }
-    available_langs
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "en".to_string())
 }
 
 /// Helper function to send transcript text in chunks.
@@ -169,28 +128,6 @@ mod tests {
     use super::*;
     use std::fs;
     use teloxide_tests::{MockBot, MockMessageText};
-
-    #[test]
-    fn test_select_fallback_language() {
-        let available = vec!["en".to_string(), "es".to_string(), "zh-HK".to_string()];
-        assert_eq!(
-            select_fallback_language(&available, &["fr", "en", "es"]),
-            "en"
-        );
-
-        let available = vec!["es".to_string(), "zh-HK".to_string()];
-        assert_eq!(
-            select_fallback_language(&available, &["fr", "en", "zh-HK"]),
-            "zh-HK"
-        );
-
-        // Test empty available languages list
-        let available: Vec<String> = vec![];
-        assert_eq!(
-            select_fallback_language(&available, &["fr", "en", "es"]),
-            "en"
-        );
-    }
 
     #[tokio::test]
     async fn test_handle_message_happy_path() {
