@@ -10,7 +10,7 @@ pretty_env_logger = "0.5"
 tokio = { version = "1.8", features = ["rt-multi-thread", "macros"] }
 ytranscript = "0.1.0"
 html-escape = "0.2.13"
+dptree = "0.3"
 
 [dev-dependencies]
-teloxide-core = "0.9"
-tokio-test = "0.4"
+teloxide_tests = "0.2.0"
