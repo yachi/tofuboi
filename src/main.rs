@@ -120,27 +120,40 @@ async fn send_transcript(
         return Ok(());
     }
 
-    let mut current_chunk = String::with_capacity(4096);
+    const MAX_CHUNK_SIZE: usize = 4000; // Leave some margin for safety
+    let mut current_chunk = String::with_capacity(MAX_CHUNK_SIZE);
 
     for entry in transcript {
         let text = decode_html_entities(&entry.text).replace("&#39;", "'");
 
-        // If adding this entry would exceed chunk size, send current chunk first
-        if current_chunk.len() + text.len() + 1 > 4096 && !current_chunk.is_empty() {
+        // Split long text into smaller chunks efficiently
+        if text.len() > MAX_CHUNK_SIZE {
+            // First send any accumulated text
+            if !current_chunk.is_empty() {
+                bot.send_message(msg.chat.id, &current_chunk).await?;
+                current_chunk.clear();
+            }
+
+            // Then split and send the long text
+            for chunk in text.as_bytes().chunks(MAX_CHUNK_SIZE) {
+                if let Ok(chunk_str) = std::str::from_utf8(chunk) {
+                    bot.send_message(msg.chat.id, chunk_str).await?;
+                }
+            }
+            continue;
+        }
+
+        // If adding this entry would exceed chunk size, send current chunk
+        if current_chunk.len() + text.len() + 1 > MAX_CHUNK_SIZE {
             bot.send_message(msg.chat.id, &current_chunk).await?;
             current_chunk.clear();
         }
 
-        // Handle case where single entry is longer than 4096
-        if text.len() > 4096 {
-            for chunk in text.chars().collect::<Vec<char>>().chunks(4096) {
-                let chunk_str: String = chunk.iter().collect();
-                bot.send_message(msg.chat.id, chunk_str).await?;
-            }
-        } else {
-            current_chunk.push_str(&text);
+        // Add the text to current chunk
+        if !current_chunk.is_empty() {
             current_chunk.push(' ');
         }
+        current_chunk.push_str(&text);
     }
 
     // Send any remaining text
