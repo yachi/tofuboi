@@ -170,6 +170,13 @@ mod tests {
             select_fallback_language(&available, &["fr", "en", "zh-HK"]),
             "zh-HK"
         );
+
+        // Test empty available languages list
+        let available: Vec<String> = vec![];
+        assert_eq!(
+            select_fallback_language(&available, &["fr", "en", "es"]),
+            "en"
+        );
     }
 
     #[tokio::test]
@@ -189,5 +196,41 @@ mod tests {
         let expected = fs::read_to_string("fixtures/transcript.txt")
             .expect("Failed to read transcript.txt fixture");
         assert_eq!(messages.join(" ").trim(), expected.trim());
+    }
+
+    #[tokio::test]
+    async fn test_handle_invalid_video_id() {
+        let invalid_id = "not_a_valid_video_id";
+        let bot = MockBot::new(MockMessageText::new().text(invalid_id), handler_tree());
+
+        bot.dispatch().await;
+
+        let messages: Vec<String> = bot
+            .get_responses()
+            .sent_messages
+            .iter()
+            .map(|m| m.text().unwrap_or_default().to_string())
+            .collect();
+
+        assert!(!messages.is_empty());
+        assert!(messages[0].contains("Error fetching transcript"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_empty_message() {
+        let empty_message = "";
+        let bot = MockBot::new(MockMessageText::new().text(empty_message), handler_tree());
+
+        bot.dispatch().await;
+
+        let messages: Vec<String> = bot
+            .get_responses()
+            .sent_messages
+            .iter()
+            .map(|m| m.text().unwrap_or_default().to_string())
+            .collect();
+
+        assert!(!messages.is_empty());
+        assert_eq!(messages[0], "Please provide a video ID.");
     }
 }
