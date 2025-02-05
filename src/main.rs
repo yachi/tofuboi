@@ -63,6 +63,35 @@ async fn handle_message(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
+fn split_safe_utf8(s: &str, max_bytes: usize) -> Vec<&str> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+
+    while start < s.len() {
+        let end = (start + max_bytes).min(s.len());
+        let mut end = adjust_to_char_boundary(s, end);
+        if end <= start {
+            end = start + max_bytes.min(s.len() - start);
+        }
+        chunks.push(&s[start..end]);
+        start = end;
+    }
+    chunks
+}
+
+#[inline]
+fn adjust_to_char_boundary(s: &str, byte_index: usize) -> usize {
+    if s.is_char_boundary(byte_index) {
+        byte_index
+    } else {
+        let mut adjusted = byte_index - 1;
+        while !s.is_char_boundary(adjusted) {
+            adjusted -= 1;
+        }
+        adjusted
+    }
+}
+
 /// Helper function to send transcript text in chunks.
 /// Streams the transcript entries directly without accumulating the entire text first.
 async fn send_transcript(
@@ -79,45 +108,36 @@ async fn send_transcript(
         return Ok(());
     }
 
-    const MAX_CHUNK_SIZE: usize = 4000; // Leave some margin for safety
-    let mut current_chunk = String::with_capacity(MAX_CHUNK_SIZE);
+    const MAX_MESSAGE_SIZE: usize = 4096; // Telegram's message size limit
+    let mut buffer = String::with_capacity(MAX_MESSAGE_SIZE);
 
     for entry in transcript {
-        let text = decode_html_entities(&entry.text).replace("&#39;", "'");
+        let text = decode_html_entities(&entry.text)
+            .replace("&#39;", "'")
+            .to_string();
 
-        // Split long text into smaller chunks efficiently
-        if text.len() > MAX_CHUNK_SIZE {
-            // First send any accumulated text
-            if !current_chunk.is_empty() {
-                bot.send_message(msg.chat.id, &current_chunk).await?;
-                current_chunk.clear();
+        // Process each chunk of the current entry
+        for chunk in split_safe_utf8(&text, MAX_MESSAGE_SIZE) {
+            if buffer.len() + chunk.len() > MAX_MESSAGE_SIZE {
+                bot.send_message(msg.chat.id, &buffer).await?;
+                buffer.clear();
             }
 
-            // Then split and send the long text
-            for chunk in text.as_bytes().chunks(MAX_CHUNK_SIZE) {
-                if let Ok(chunk_str) = std::str::from_utf8(chunk) {
-                    bot.send_message(msg.chat.id, chunk_str).await?;
-                }
+            if !buffer.is_empty() {
+                buffer.push('\n');
             }
-            continue;
+            buffer.push_str(chunk);
         }
 
-        // If adding this entry would exceed chunk size, send current chunk
-        if current_chunk.len() + text.len() + 1 > MAX_CHUNK_SIZE {
-            bot.send_message(msg.chat.id, &current_chunk).await?;
-            current_chunk.clear();
+        // Ensure each entry ends with a message boundary if needed
+        if buffer.len() > MAX_MESSAGE_SIZE / 2 {
+            bot.send_message(msg.chat.id, &buffer).await?;
+            buffer.clear();
         }
-
-        // Add the text to current chunk
-        if !current_chunk.is_empty() {
-            current_chunk.push(' ');
-        }
-        current_chunk.push_str(&text);
     }
 
-    // Send any remaining text
-    if !current_chunk.is_empty() {
-        bot.send_message(msg.chat.id, &current_chunk).await?;
+    if !buffer.is_empty() {
+        bot.send_message(msg.chat.id, buffer).await?;
     }
 
     Ok(())
@@ -140,7 +160,7 @@ mod tests {
             .get_responses()
             .sent_messages
             .iter()
-            .map(|m| m.text().unwrap_or_default().to_string())
+            .map(|m| m.text().unwrap_or_default().to_string().replace("\n", " "))
             .collect();
 
         let expected = fs::read_to_string("fixtures/transcript.txt")
