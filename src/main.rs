@@ -11,14 +11,15 @@ async fn main() {
     // Read the bot token from the TELOXIDE_TOKEN environment variable
     let bot = Bot::from_env();
 
-    // Use 'repl' to respond to each incoming message
-    teloxide::repl(bot, |bot: Bot, msg: Message| async move {
+    // Define the message handler
+    let message_handler = move |bot: Bot, msg: Message| async move {
         // Expect the message to contain the YouTube video ID and an optional language code.
         // Example: "dQw4w9WgXcQ en" or just "dQw4w9WgXcQ"
         if let Some(text) = msg.text() {
             let parts: Vec<&str> = text.split_whitespace().collect();
             if parts.is_empty() {
-                bot.send_message(msg.chat.id, "Please provide a video ID.").await?;
+                bot.send_message(msg.chat.id, "Please provide a video ID.")
+                    .await?;
                 return Ok(());
             }
             let video_id = parts[0].trim();
@@ -32,9 +33,14 @@ async fn main() {
                 Ok(transcript) => {
                     send_transcript(&bot, &msg, transcript).await?;
                 }
-                Err(ytranscript::YoutubeTranscriptError::TranscriptNotAvailableLanguage(_, available_langs, _video)) => {
+                Err(ytranscript::YoutubeTranscriptError::TranscriptNotAvailableLanguage(
+                    _,
+                    available_langs,
+                    _video,
+                )) => {
                     // Refactored fallback language selection:
-                    let fallback_lang = select_fallback_language(&available_langs, &["en", "zh-HK", "zh-TW"]);
+                    let fallback_lang =
+                        select_fallback_language(&available_langs, &["en", "zh-HK", "zh-TW"]);
                     let available_langs_str = available_langs.join(", ");
                     let info = format!(
                         "Requested language '{}' not available. Retrying with fallback language '{}'. Available languages: {}",
@@ -49,8 +55,11 @@ async fn main() {
                             send_transcript(&bot, &msg, transcript).await?;
                         }
                         Err(e) => {
-                            bot.send_message(msg.chat.id, format!("Error fetching transcript: {}", e))
-                                .await?;
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("Error fetching transcript: {}", e),
+                            )
+                            .await?;
                         }
                     }
                 }
@@ -60,12 +69,15 @@ async fn main() {
                 }
             }
         } else {
-            bot.send_message(msg.chat.id, "Please provide a valid YouTube video ID.").await?;
+            bot.send_message(msg.chat.id, "Please provide a valid YouTube video ID.")
+                .await?;
         }
 
         Ok(())
-    })
-    .await;
+    };
+
+    // Use 'repl' to respond to each incoming message
+    teloxide::repl(bot, message_handler).await;
 }
 
 /// Selects a fallback language from the list of available languages.
@@ -131,4 +143,24 @@ async fn send_transcript(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_select_fallback_language() {
+        let available = vec!["en".to_string(), "es".to_string(), "zh-HK".to_string()];
+        assert_eq!(
+            select_fallback_language(&available, &["fr", "en", "es"]),
+            "en"
+        );
+
+        let available = vec!["es".to_string(), "zh-HK".to_string()];
+        assert_eq!(
+            select_fallback_language(&available, &["fr", "en", "zh-HK"]),
+            "zh-HK"
+        );
+    }
 }
