@@ -1,6 +1,8 @@
 mod transcript;
+mod formatter;
 
 use html_escape::decode_html_entities;
+use formatter::split_safe_utf8;
 use teloxide::{
     dispatching::{UpdateFilterExt, UpdateHandler},
     prelude::*,
@@ -63,34 +65,6 @@ async fn handle_message(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-fn split_safe_utf8(s: &str, max_bytes: usize) -> Vec<&str> {
-    let mut chunks = Vec::new();
-    let mut start = 0;
-
-    while start < s.len() {
-        let end = (start + max_bytes).min(s.len());
-        let mut end = adjust_to_char_boundary(s, end);
-        if end <= start {
-            end = start + max_bytes.min(s.len() - start);
-        }
-        chunks.push(&s[start..end]);
-        start = end;
-    }
-    chunks
-}
-
-#[inline]
-fn adjust_to_char_boundary(s: &str, byte_index: usize) -> usize {
-    if s.is_char_boundary(byte_index) {
-        byte_index
-    } else {
-        let mut adjusted = byte_index - 1;
-        while !s.is_char_boundary(adjusted) {
-            adjusted -= 1;
-        }
-        adjusted
-    }
-}
 
 /// Helper function to send transcript text in chunks.
 /// Streams the transcript entries directly without accumulating the entire text first.
@@ -117,7 +91,19 @@ async fn send_transcript(
             .to_string();
 
         // Process each chunk of the current entry
-        for chunk in split_safe_utf8(&text, MAX_MESSAGE_SIZE) {
+        let chunks = match split_safe_utf8(&text, MAX_MESSAGE_SIZE) {
+            Ok(chunks) => chunks,
+            Err(e) => {
+                bot.send_message(
+                    msg.chat.id,
+                    format!("Error processing transcript: {}", e),
+                )
+                .await?;
+                return Ok(());
+            }
+        };
+
+        for chunk in chunks {
             if buffer.len() + chunk.len() > MAX_MESSAGE_SIZE {
                 bot.send_message(msg.chat.id, &buffer).await?;
                 buffer.clear();
