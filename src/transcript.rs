@@ -6,7 +6,8 @@ impl TranscriptService {
     pub async fn fetch(
         video_id: &str,
         lang: &str,
-    ) -> Result<(Vec<ytranscript::TranscriptResponse>, Option<String>), YoutubeTranscriptError> {
+    ) -> Result<(Vec<ytranscript::TranscriptResponse>, Option<String>), YoutubeTranscriptError>
+    {
         let config = TranscriptConfig {
             lang: Some(lang.to_string()),
         };
@@ -18,11 +19,13 @@ impl TranscriptService {
                 available_langs,
                 video,
             )) => {
-                let fallback_lang = Self::select_fallback_language(&available_langs, &["en", "zh-HK", "zh-TW"]);
+                let fallback_lang =
+                    Self::select_fallback_language(&available_langs, &["en", "zh-HK", "zh-TW"]);
                 let new_config = TranscriptConfig {
                     lang: Some(fallback_lang.clone()),
                 };
-                let transcript = YoutubeTranscript::fetch_transcript(&video, Some(new_config)).await?;
+                let transcript =
+                    YoutubeTranscript::fetch_transcript(&video, Some(new_config)).await?;
                 Ok((transcript, Some(format!("Requested language '{}' not available. Using fallback language '{}'. Available languages: {}", 
                     lang, fallback_lang, available_langs.join(", ")))))
             }

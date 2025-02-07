@@ -1,8 +1,8 @@
-mod transcript;
 mod formatter;
+mod transcript;
 
-use html_escape::decode_html_entities;
 use formatter::split_safe_utf8;
+use html_escape::decode_html_entities;
 use teloxide::{
     dispatching::{UpdateFilterExt, UpdateHandler},
     prelude::*,
@@ -65,7 +65,6 @@ async fn handle_message(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-
 /// Helper function to send transcript text in chunks.
 /// Streams the transcript entries directly without accumulating the entire text first.
 async fn send_transcript(
@@ -86,44 +85,43 @@ async fn send_transcript(
     let mut buffer = String::with_capacity(MAX_MESSAGE_SIZE);
 
     for entry in transcript {
+        // Decode HTML entities and fix specific cases
         let text = decode_html_entities(&entry.text)
             .replace("&#39;", "'")
             .to_string();
 
-        // Process each chunk of the current entry
+        // Safely split text to ensure single chunks won't exceed MAX_MESSAGE_SIZE
         let chunks = match split_safe_utf8(&text, MAX_MESSAGE_SIZE) {
             Ok(chunks) => chunks,
             Err(e) => {
-                bot.send_message(
-                    msg.chat.id,
-                    format!("Error processing transcript: {}", e),
-                )
-                .await?;
+                bot.send_message(msg.chat.id, format!("Error processing transcript: {}", e))
+                    .await?;
                 return Ok(());
             }
         };
 
         for chunk in chunks {
-            if buffer.len() + chunk.len() > MAX_MESSAGE_SIZE {
+            // Determine additional length, including a newline if buffer is not empty
+            let additional_len = if buffer.is_empty() {
+                chunk.len()
+            } else {
+                1 + chunk.len()
+            };
+            if buffer.len() + additional_len > MAX_MESSAGE_SIZE {
+                // Flush the current buffer if appending the chunk would exceed Telegram's limit
                 bot.send_message(msg.chat.id, &buffer).await?;
                 buffer.clear();
             }
-
             if !buffer.is_empty() {
                 buffer.push('\n');
             }
             buffer.push_str(chunk);
         }
-
-        // Ensure each entry ends with a message boundary if needed
-        if buffer.len() > MAX_MESSAGE_SIZE / 2 {
-            bot.send_message(msg.chat.id, &buffer).await?;
-            buffer.clear();
-        }
     }
 
+    // Send any remaining content in the buffer
     if !buffer.is_empty() {
-        bot.send_message(msg.chat.id, buffer).await?;
+        bot.send_message(msg.chat.id, &buffer).await?;
     }
 
     Ok(())
