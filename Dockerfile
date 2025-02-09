@@ -1,7 +1,8 @@
 # Build stage: base with sccache and cargo-chef installed
-FROM jonoh/sccache-rust AS base
+FROM jonoh/sccache-rust:1.84.0 AS base
 # Install cargo-chef for dependency caching, and set environment variables
-RUN cargo install --locked cargo-chef
+ARG CARGO_CHEF_VERSION=0.1.71
+RUN cargo install --locked cargo-chef --version ${CARGO_CHEF_VERSION}
 ENV RUSTC_WRAPPER=sccache \
     SCCACHE_DIR=/sccache
 
