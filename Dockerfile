@@ -33,7 +33,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Runtime stage: use a minimal image with non-root user
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openssl ca-certificates && \
+    apt-get install -y --no-install-recommends \
+        openssl=3.0.15-1~deb12u1 \
+        ca-certificates=20230311 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
