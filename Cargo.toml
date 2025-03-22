@@ -11,7 +11,7 @@ tokio = { version = "1.8", features = ["rt-multi-thread", "macros"] }
 ytranscript = "0.1.0"
 html-escape = "0.2.13"
 dptree = "0.3"
-reqwest = { version = "0.11", features = ["multipart"] }
+reqwest = { version = "0.12.15", features = ["multipart"] }
 
 [dev-dependencies]
 teloxide_tests = "0.2.0"
