@@ -79,9 +79,19 @@ async fn upload_to_0x0st(
     // Define a unique user agent for this application
     let user_agent = "tofuboi/1.0";
 
+    // Use mockito server URL in tests, otherwise use the real 0x0.st URL
+    #[cfg(test)]
+    let upload_url = {
+        use mockito;
+        mockito::server_url()
+    };
+    
+    #[cfg(not(test))]
+    let upload_url = "https://0x0.st".to_string();
+
     // Send request to 0x0.st with the custom user agent
     let response = client
-        .post("https://0x0.st")
+        .post(upload_url)
         .header(reqwest::header::USER_AGENT, user_agent)
         .multipart(form)
         .send()
@@ -156,22 +166,22 @@ async fn send_transcript(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockito::mock;
+    use mockito::{mock, Matcher};
     use teloxide_tests::{MockBot, MockMessageText};
 
     #[tokio::test]
     async fn test_handle_message_happy_path() {
         // Setup mock for 0x0.st
         let mock_url = "https://0x0.st/example-transcript-url.txt";
+
+        // Create a mock that matches any multipart request to the root path
         let _m = mock("POST", "/")
+            .match_header("user-agent", "tofuboi/1.0")
+            .match_body(Matcher::Any) // Match any body since multipart boundaries are dynamic
             .with_status(200)
             .with_header("content-type", "text/plain")
             .with_body(mock_url)
             .create();
-
-        // Override the 0x0.st API endpoint for testing
-        // Note: This is a simplified test that doesn't actually mock the upload_to_0x0st function
-        // In a more comprehensive test, we'd use dependency injection to properly mock this function
 
         let video_id = "https://www.youtube.com/watch?v=HQoJMIgNdjo";
         let bot = MockBot::new(MockMessageText::new().text(video_id), handler_tree());
@@ -188,8 +198,14 @@ mod tests {
         // Verify that at least one message was sent
         assert!(!messages.is_empty());
 
-        // Note: In a real implementation with proper mocking, we would check for
-        // "Transcript available at:" in the message
+        // Check if any message contains the expected transcript URL
+        let transcript_message_found = messages
+            .iter()
+            .any(|msg| msg.contains("Transcript available at:") && msg.contains(mock_url));
+
+        // This might fail if TranscriptService::fetch is not mocked correctly,
+        // but the mocking of 0x0.st upload is now fixed
+        assert!(transcript_message_found, "Expected to find a message with the transcript URL, but none was found. Messages: {:?}", messages);
     }
 
     #[tokio::test]
