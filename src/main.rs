@@ -2,6 +2,7 @@ mod transcript;
 
 use html_escape::decode_html_entities;
 use reqwest::multipart;
+use std::env; // Import the env module
 use teloxide::{
     dispatching::{UpdateFilterExt, UpdateHandler},
     prelude::*,
@@ -76,8 +77,8 @@ async fn upload_to_0x0st(
     // Build the multipart form
     let form = multipart::Form::new().part("file", file_part);
 
-    // Define a unique user agent for this application
-    let user_agent = "tofuboi/1.0";
+    // Define a user agent, getting it from env var or using a default
+    let user_agent = env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
 
     // Use mockito server URL in tests, otherwise use the real 0x0.st URL
     #[cfg(test)]
@@ -85,14 +86,14 @@ async fn upload_to_0x0st(
         use mockito;
         mockito::server_url()
     };
-    
+
     #[cfg(not(test))]
     let upload_url = "https://0x0.st".to_string();
 
     // Send request to 0x0.st with the custom user agent
     let response = client
         .post(upload_url)
-        .header(reqwest::header::USER_AGENT, user_agent)
+        .header(reqwest::header::USER_AGENT, user_agent) // Use the determined user agent
         .multipart(form)
         .send()
         .await?;
@@ -174,9 +175,13 @@ mod tests {
         // Setup mock for 0x0.st
         let mock_url = "https://0x0.st/example-transcript-url.txt";
 
+        // Set the expected user agent for the test environment
+        // If UPLOAD_USER_AGENT is set in the test runner's env, use that, otherwise default
+        let expected_user_agent = env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
+
         // Create a mock that matches any multipart request to the root path
         let _m = mock("POST", "/")
-            .match_header("user-agent", "tofuboi/1.0")
+            .match_header("user-agent", expected_user_agent.as_str()) // Match the expected user agent
             .match_body(Matcher::Any) // Match any body since multipart boundaries are dynamic
             .with_status(200)
             .with_header("content-type", "text/plain")
