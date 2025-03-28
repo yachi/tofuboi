@@ -98,7 +98,10 @@ async fn upload_to_pastebin(
     let response = client
         .post(upload_url)
         .header(reqwest::header::USER_AGENT, user_agent)
-        .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
         .form(&[
             ("api_dev_key", &api_key),
             ("api_paste_code", &content_string),
@@ -123,7 +126,11 @@ async fn upload_to_pastebin(
 
     // Get the URL from the response body
     let url = response.text().await?.trim().to_string();
-    Ok(url)
+
+    // Replace standard URL with raw URL
+    let raw_url = url.replace("https://pastebin.com/", "https://pastebin.com/raw/");
+
+    Ok(raw_url)
 }
 
 /// Helper function to upload transcript to Pastebin and send the link to the user.
@@ -183,10 +190,13 @@ mod tests {
     async fn test_handle_message_happy_path() {
         // Setup mock for Pastebin
         let mock_url = "https://pastebin.com/abcdef123";
+        // The raw URL that will be sent to the user
+        let raw_mock_url = "https://pastebin.com/raw/abcdef123";
 
         // Set the expected user agent for the test environment
-        let expected_user_agent = env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
-        
+        let expected_user_agent =
+            env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
+
         // Set a test API key for the environment
         env::set_var("PASTEBIN_KEY", "test_api_key");
 
@@ -215,13 +225,11 @@ mod tests {
         // Verify that at least one message was sent
         assert!(!messages.is_empty());
 
-        // Check if any message contains the expected transcript URL
+        // Check if any message contains the expected transcript URL (with /raw/ path)
         let transcript_message_found = messages
             .iter()
-            .any(|msg| msg.contains("Transcript available at:") && msg.contains(mock_url));
+            .any(|msg| msg.contains("Transcript available at:") && msg.contains(raw_mock_url));
 
-        // This might fail if TranscriptService::fetch is not mocked correctly,
-        // but the mocking of Pastebin upload is now fixed
         assert!(transcript_message_found, "Expected to find a message with the transcript URL, but none was found. Messages: {:?}", messages);
     }
 
