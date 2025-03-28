@@ -9,6 +9,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  # IMAGE_NAME is derived from the repository owner and a fixed name 'tofuboi'
   IMAGE_NAME: ${{ github.repository_owner }}/tofuboi
 
 jobs:
@@ -17,7 +18,7 @@ jobs:
 
     permissions:
       contents: read
-      packages: write
+      packages: write # Needed to push cache and image to ghcr.io
 
     steps:
       - name: Checkout repository
@@ -37,7 +38,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{github.actor}}/tofuboi
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} # Use the defined IMAGE_NAME
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -46,5 +47,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Use ghcr.io for caching
+          cache-from: |
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build-cache
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Push cache to ghcr.io, use mode=max for better caching
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:build-cache,mode=max
