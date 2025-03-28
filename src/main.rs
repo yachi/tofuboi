@@ -1,7 +1,7 @@
 mod transcript;
 
 use html_escape::decode_html_entities;
-use reqwest::multipart;
+use reqwest::Client;
 use std::env; // Import the env module
 use teloxide::{
     dispatching::{UpdateFilterExt, UpdateHandler},
@@ -65,22 +65,22 @@ async fn handle_message(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-/// Uploads content to 0x0.st and returns the resulting URL
-async fn upload_to_0x0st(
+/// Uploads content to Pastebin and returns the resulting URL
+async fn upload_to_pastebin(
     content: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let client = reqwest::Client::new();
+    let client = Client::new();
 
-    // Create a form part with the transcript content
-    let file_part = multipart::Part::bytes(content.as_bytes().to_vec()).file_name("transcript.txt");
-
-    // Build the multipart form
-    let form = multipart::Form::new().part("file", file_part);
+    // Get API key from environment variable
+    let api_key = match env::var("PASTEBIN_KEY") {
+        Ok(key) => key,
+        Err(_) => return Err("PASTEBIN_KEY environment variable not set".into()),
+    };
 
     // Define a user agent, getting it from env var or using a default
     let user_agent = env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
 
-    // Use mockito server URL in tests, otherwise use the real 0x0.st URL
+    // Use mockito server URL in tests, otherwise use the real Pastebin URL
     #[cfg(test)]
     let upload_url = {
         use mockito;
@@ -88,13 +88,22 @@ async fn upload_to_0x0st(
     };
 
     #[cfg(not(test))]
-    let upload_url = "https://0x0.st".to_string();
+    let upload_url = "https://pastebin.com/api/api_post.php".to_string();
 
-    // Send request to 0x0.st with the custom user agent
+    // Convert the content to a String to satisfy type requirements
+    let content_string = content.to_string();
+    let paste_option = "paste".to_string();
+
+    // Send request to Pastebin with the required parameters
     let response = client
         .post(upload_url)
-        .header(reqwest::header::USER_AGENT, user_agent) // Use the determined user agent
-        .multipart(form)
+        .header(reqwest::header::USER_AGENT, user_agent)
+        .header(reqwest::header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .form(&[
+            ("api_dev_key", &api_key),
+            ("api_paste_code", &content_string),
+            ("api_option", &paste_option),
+        ])
         .send()
         .await?;
 
@@ -117,7 +126,7 @@ async fn upload_to_0x0st(
     Ok(url)
 }
 
-/// Helper function to upload transcript to 0x0.st and send the link to the user.
+/// Helper function to upload transcript to Pastebin and send the link to the user.
 /// Instead of sending the transcript directly, it uploads the text and sends the resulting URL.
 async fn send_transcript(
     bot: &Bot,
@@ -148,8 +157,8 @@ async fn send_transcript(
         full_transcript.push_str(&text);
     }
 
-    // Upload the transcript to 0x0.st
-    match upload_to_0x0st(&full_transcript).await {
+    // Upload the transcript to Pastebin
+    match upload_to_pastebin(&full_transcript).await {
         Ok(url) => {
             // Send only the link to the user
             bot.send_message(msg.chat.id, format!("Transcript available at: {}", url))
@@ -172,17 +181,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_message_happy_path() {
-        // Setup mock for 0x0.st
-        let mock_url = "https://0x0.st/example-transcript-url.txt";
+        // Setup mock for Pastebin
+        let mock_url = "https://pastebin.com/abcdef123";
 
         // Set the expected user agent for the test environment
-        // If UPLOAD_USER_AGENT is set in the test runner's env, use that, otherwise default
         let expected_user_agent = env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
+        
+        // Set a test API key for the environment
+        env::set_var("PASTEBIN_KEY", "test_api_key");
 
-        // Create a mock that matches any multipart request to the root path
+        // Create a mock that matches the form request to the Pastebin API
         let _m = mock("POST", "/")
-            .match_header("user-agent", expected_user_agent.as_str()) // Match the expected user agent
-            .match_body(Matcher::Any) // Match any body since multipart boundaries are dynamic
+            .match_header("user-agent", expected_user_agent.as_str())
+            .match_header("content-type", "application/x-www-form-urlencoded")
+            .match_body(Matcher::Any) // Match any body since we're sending form data
             .with_status(200)
             .with_header("content-type", "text/plain")
             .with_body(mock_url)
@@ -209,7 +221,7 @@ mod tests {
             .any(|msg| msg.contains("Transcript available at:") && msg.contains(mock_url));
 
         // This might fail if TranscriptService::fetch is not mocked correctly,
-        // but the mocking of 0x0.st upload is now fixed
+        // but the mocking of Pastebin upload is now fixed
         assert!(transcript_message_found, "Expected to find a message with the transcript URL, but none was found. Messages: {:?}", messages);
     }
 
