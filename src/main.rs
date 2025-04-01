@@ -1,7 +1,8 @@
+mod pastebin; // Add module declaration
 mod transcript;
 
 use html_escape::decode_html_entities;
-use reqwest::Client;
+// reqwest::Client is no longer needed directly here
 use std::env; // Import the env module
 use teloxide::{
     dispatching::{UpdateFilterExt, UpdateHandler},
@@ -65,73 +66,6 @@ async fn handle_message(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-/// Uploads content to Pastebin and returns the resulting URL
-async fn upload_to_pastebin(
-    content: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let client = Client::new();
-
-    // Get API key from environment variable
-    let api_key = match env::var("PASTEBIN_KEY") {
-        Ok(key) => key,
-        Err(_) => return Err("PASTEBIN_KEY environment variable not set".into()),
-    };
-
-    // Define a user agent, getting it from env var or using a default
-    let user_agent = env::var("UPLOAD_USER_AGENT").unwrap_or_else(|_| "tofuboi/1.0".to_string());
-
-    // Use mockito server URL in tests, otherwise use the real Pastebin URL
-    #[cfg(test)]
-    let upload_url = {
-        use mockito;
-        mockito::server_url()
-    };
-
-    #[cfg(not(test))]
-    let upload_url = "https://pastebin.com/api/api_post.php".to_string();
-
-    // Convert the content to a String to satisfy type requirements
-    let content_string = content.to_string();
-    let paste_option = "paste".to_string();
-
-    // Send request to Pastebin with the required parameters
-    let response = client
-        .post(upload_url)
-        .header(reqwest::header::USER_AGENT, user_agent)
-        .header(
-            reqwest::header::CONTENT_TYPE,
-            "application/x-www-form-urlencoded",
-        )
-        .form(&[
-            ("api_dev_key", &api_key),
-            ("api_paste_code", &content_string),
-            ("api_option", &paste_option),
-        ])
-        .send()
-        .await?;
-
-    if !response.status().is_success() {
-        // Get the status code and response body for the error message
-        let status = response.status();
-        let error_body = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Failed to read response body".to_string());
-        return Err(format!(
-            "Upload failed with status: {}, response: {}",
-            status, error_body
-        )
-        .into());
-    }
-
-    // Get the URL from the response body
-    let url = response.text().await?.trim().to_string();
-
-    // Replace standard URL with raw URL
-    let raw_url = url.replace("https://pastebin.com/", "https://pastebin.com/raw/");
-
-    Ok(raw_url)
-}
 
 /// Helper function to upload transcript to Pastebin and send the link to the user.
 /// Instead of sending the transcript directly, it uploads the text and sends the resulting URL.
@@ -164,8 +98,8 @@ async fn send_transcript(
         full_transcript.push_str(&text);
     }
 
-    // Upload the transcript to Pastebin
-    match upload_to_pastebin(&full_transcript).await {
+    // Upload the transcript to Pastebin using the new module
+    match pastebin::upload_to_pastebin(&full_transcript).await {
         Ok(url) => {
             // Send only the link to the user
             bot.send_message(msg.chat.id, format!("Transcript available at: {}", url))
@@ -180,10 +114,13 @@ async fn send_transcript(
     Ok(())
 }
 
+// Remove unused import
+// use reqwest::Client;
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockito::{mock, Matcher};
+    use mockito::{mock, Matcher}; // mockito is still needed for setting up the mock server URL
     use teloxide_tests::{MockBot, MockMessageText};
 
     #[tokio::test]
